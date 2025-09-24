@@ -1,2 +1,0 @@
-[console_scripts]
-land-scout = land_scout.cli:main

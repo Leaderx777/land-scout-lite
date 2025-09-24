@@ -25,3 +25,11 @@ dev = [
 
 [project.scripts]
 land-scout = "land_scout.cli:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["land_scout*"]
+exclude = ["tests*", "src*"]
