@@ -1,0 +1,10 @@
+scoring:
+  default_thresholds: [1000, 4000, 8000]
+  thresholds_by_county:
+    peoria:   [1200, 4500, 9000]
+    knox:     [1000, 4000, 8000]
+    woodford: [1500, 5000, 10000]
+    chicago:  [5000, 15000, 40000]
+    tazewell: [1300, 4500, 9000]
+    henry:    [1100, 4200, 8500]
+    canton:   [1100, 4200, 8500]

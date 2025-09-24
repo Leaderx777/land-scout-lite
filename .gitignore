@@ -5,3 +5,19 @@ __pycache__/
 data/ingest/
 data/cache/
 logs/
+
+# ignore raw data dumps
+/data/*.csv
+
+# outputs
+/out/
+
+# build metadata
+*.egg-info/
+/src/land_scout_lite.egg-info/
+__pycache__/
+/.pytest_cache/
+/.ruff_cache/
+/.mypy_cache/
+.venv/
+/out/

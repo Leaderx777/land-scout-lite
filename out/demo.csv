@@ -1,0 +1,4 @@
+price,acre,county,title,price_per_acre,category
+4000,1,Peoria,Peoria deal,4000.0,very_good
+4000,1,Knox,Knox deal,4000.0,very_good
+4000,1,Chicago,Chicago deal,4000.0,excellent
