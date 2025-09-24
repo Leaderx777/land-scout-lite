@@ -1,0 +1,2 @@
+scoring:
+  price_per_acre_thresholds: [1000, 3500, 8000]
