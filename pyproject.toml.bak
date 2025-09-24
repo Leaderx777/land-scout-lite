@@ -29,4 +29,7 @@ land-scout = "land_scout.cli:main"
 [tool.setuptools]
 include-package-data = false
 
-packages = ["land_scout"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["land_scout*"]
+exclude = ["tests*", "src*"]
