@@ -3,7 +3,7 @@
 import pandas as pd
 
 from land_scout.core.market import is_target_county
-from land_scout.predictor_client import predict_land_value
+from land_scout.core.value_predictor import estimate_land_value
 
 REQUIRED_COLUMNS = {
     "listing_id",
@@ -17,7 +17,7 @@ REQUIRED_COLUMNS = {
 }
 
 
-def screen_deals(df: pd.DataFrame) -> pd.DataFrame:
+def screen_deals(df: pd.DataFrame, api_url: str | None = None) -> pd.DataFrame:
     """Predict values, calculate spreads, and rank target-market listings."""
     missing = REQUIRED_COLUMNS.difference(df.columns)
     if missing:
@@ -28,13 +28,15 @@ def screen_deals(df: pd.DataFrame) -> pd.DataFrame:
         if not is_target_county(str(row["county"])):
             continue
 
-        estimated_value = predict_land_value(
+        prediction = estimate_land_value(
             acres=float(row["acres"]),
             distance_to_city_miles=float(row["distance_to_city_miles"]),
             road_frontage_ft=float(row["road_frontage_ft"]),
             zoning_score=int(row["zoning_score"]),
             utilities=int(row["utilities"]),
+            api_url=api_url,
         )
+        estimated_value = float(prediction["estimated_value"])
         asking_price = float(row["price"])
         spread = estimated_value - asking_price
         discount_pct = (spread / estimated_value * 100) if estimated_value else 0.0
