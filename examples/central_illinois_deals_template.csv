@@ -1,0 +1,4 @@
+listing_id,county,acres,price,distance_to_city_miles,road_frontage_ft,zoning_score,utilities
+DEMO-001,Peoria,5.0,50000,12,250,3,1
+DEMO-002,Tazewell,10.0,85000,18,400,3,1
+DEMO-003,Woodford,3.5,42000,9,180,2,0
