@@ -1,21 +1,52 @@
 # Land Scout Lite
 
-Land Scout Lite is a Streamlit-based prototype for screening and organizing land investment opportunities from structured CSV data.
+Land Scout Lite is a Streamlit-based land-deal screening prototype that now connects directly to the separate [Land Value Predictor](https://github.com/Leaderx777/land-value-predictor) service.
 
-## Current status
-
-The repository is a working prototype scaffold. The Streamlit interface runs, accepts the expected deal-data structure, and provides the foundation for adding ingestion, enrichment, scoring, and model-assisted screening.
-
-## Planned workflow
+## Current workflow
 
 1. Load land/deal CSV data
-2. Validate and normalize listing fields
-3. Enrich records with derived investment metrics
-4. Score or categorize opportunities
-5. Review candidate properties in a Streamlit interface
-6. Export or retain promising leads for deeper analysis
+2. Review candidate properties
+3. Enter property features for a selected deal
+4. Send those features to the Land Value Predictor FastAPI service
+5. Receive a model-estimated land value
+6. Compare that estimate with asking price and other deal information
 
-## Expected data
+## Predictor integration
+
+Land Scout calls the predictor over HTTP using `land_scout/core/value_predictor.py`.
+
+By default it expects the API at:
+
+```text
+http://127.0.0.1:8000
+```
+
+You can also set:
+
+```bash
+LAND_VALUE_API_URL=http://127.0.0.1:8000
+```
+
+Start the predictor first:
+
+```bash
+git clone https://github.com/Leaderx777/land-value-predictor.git
+cd land-value-predictor
+pip install -r requirements.txt
+python train.py
+uvicorn api:app --reload --port 8000
+```
+
+Then start Land Scout in a second terminal:
+
+```bash
+git clone https://github.com/Leaderx777/land-scout-lite.git
+cd land-scout-lite
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## Expected deal data
 
 Typical fields include:
 
@@ -23,40 +54,22 @@ Typical fields include:
 - `county`
 - `acres`
 - `price`
-- `estimated_value`
-
-Additional fields can be added as the scoring model evolves.
+- `distance_to_city_miles`
+- `road_frontage_ft`
+- `zoning_score`
+- `utilities`
 
 ## Tech stack
 
 - Python
 - Streamlit
 - pandas
-- scikit-learn
 - requests
+- scikit-learn
 - joblib
 - APScheduler
+- FastAPI integration through Land Value Predictor
 
-## Run locally
+## Status
 
-```bash
-git clone https://github.com/Leaderx777/land-scout-lite.git
-cd land-scout-lite
-python -m venv .venv
-```
-
-Activate the virtual environment and install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Start the app:
-
-```bash
-streamlit run app.py
-```
-
-## Portfolio note
-
-This project demonstrates an application concept for automating repetitive real-estate screening work. It is intentionally labeled as a prototype until the ingestion, enrichment, and scoring pipeline is fully implemented.
+This remains a portfolio prototype. The connected valuation model is currently trained on synthetic data, so model output is for workflow demonstration only and is not a real appraisal.
