@@ -1,6 +1,24 @@
 # Land Scout Lite
 
-Land Scout Lite is a Streamlit-based Central Illinois land-deal screening prototype connected to the separate [Land Value Predictor](https://github.com/Leaderx777/land-value-predictor) FastAPI service.
+Land Scout Lite is a Streamlit-based Central Illinois property-deal screening prototype connected to the separate [Land Value Predictor](https://github.com/Leaderx777/land-value-predictor) FastAPI service.
+
+## House-flip workflow
+
+The app now includes a manual residential flip analyzer. Enter property details and deal assumptions to calculate:
+
+- total project cost
+- projected profit
+- ROI
+- maximum offer for the target profit
+- BUY / REVIEW / PASS against the current buy box
+
+Current default flip rules:
+
+- purchase price: $50,000 max
+- rehab target: $20,000 max
+- target projected profit: $25,000 minimum
+
+Analyzed properties can be saved, ranked, exported to CSV, and reloaded after the app restarts. Saved deal data is stored locally in `data/saved_flip_deals.json` and is excluded from Git.
 
 ## Initial target market
 
@@ -17,9 +35,9 @@ The first screening region is centered on Peoria and currently includes:
 - Mason
 - Logan
 
-Listings outside these counties are ignored by the batch screener.
+Listings outside these counties are ignored by the land batch screener.
 
-## Current workflow
+## Land workflow
 
 1. Upload a deals CSV
 2. Keep only listings in the Central Illinois target counties
@@ -30,9 +48,9 @@ Listings outside these counties are ignored by the batch screener.
 7. Rank the strongest apparent opportunities
 8. Export the ranked results to CSV
 
-A single-property screen is also available in the Streamlit interface.
+A single-property land screen is also available in the Streamlit interface.
 
-## CSV input
+## CSV input for land screening
 
 Required columns:
 
@@ -90,7 +108,7 @@ streamlit run app.py
 
 ## Real-data direction
 
-Land Value Predictor now includes an official Peoria County GIS/sales-data connector. Peoria is therefore the first county where the project can begin replacing synthetic training inputs with real public parcel and transaction data.
+Land Value Predictor includes an official Peoria County GIS/sales-data connector. Peoria is therefore the first county where the project can begin replacing synthetic training inputs with real public parcel and transaction data.
 
 The current API model itself is still synthetic until the real-data feature engineering and validation pipeline is complete. Rankings should therefore be treated as development/demo outputs, not as investment or appraisal conclusions.
 
@@ -101,6 +119,7 @@ The current API model itself is still synthetic until the real-data feature engi
 - pandas
 - requests
 - FastAPI integration through Land Value Predictor
+- JSON persistence for saved flip opportunities
 - batch CSV screening and export
 
 ## Tests
