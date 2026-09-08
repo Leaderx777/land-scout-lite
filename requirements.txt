@@ -6,3 +6,4 @@ uvicorn
 fastapi
 python-multipart
 pyyaml
+pytest
