@@ -3,6 +3,7 @@ import streamlit as st
 
 from land_scout.core.flip import analyze_flip
 from land_scout.core.market import CENTRAL_ILLINOIS_COUNTIES, MARKET_CENTER
+from land_scout.core.property_details import PropertyDetails
 from land_scout.core.screen import screen_deals
 from land_scout.core.value_predictor import estimate_land_value
 
@@ -11,6 +12,21 @@ st.title("Land Scout Lite — Central Illinois")
 st.caption(f"Land and flip investment screening centered on {MARKET_CENTER}")
 
 st.header("House flip analysis")
+st.subheader("Property details")
+property_col1, property_col2 = st.columns(2)
+
+with property_col1:
+    property_address = st.text_input("Property address")
+    bedrooms = st.number_input("Bedrooms", min_value=0, value=3, step=1)
+    bathrooms = st.number_input("Bathrooms", min_value=0.0, value=1.0, step=0.5)
+    square_feet = st.number_input("Square feet", min_value=0, value=1200, step=50)
+
+with property_col2:
+    year_built = st.number_input("Year built", min_value=0, value=1950, step=1)
+    listing_url = st.text_input("Listing URL")
+    notes = st.text_area("Property notes", placeholder="Condition, layout, neighborhood, known repairs, seller motivation, etc.")
+
+st.subheader("Deal numbers")
 flip_col1, flip_col2 = st.columns(2)
 
 with flip_col1:
@@ -36,6 +52,16 @@ with flip_col2:
     )
 
 if st.button("Analyze flip", type="primary"):
+    property_details = PropertyDetails(
+        address=property_address.strip(),
+        bedrooms=int(bedrooms),
+        bathrooms=float(bathrooms),
+        square_feet=int(square_feet),
+        year_built=int(year_built),
+        listing_url=listing_url.strip(),
+        notes=notes.strip(),
+    )
+
     flip = analyze_flip(
         purchase_price=purchase_price,
         rehab_cost=rehab_cost,
@@ -44,6 +70,18 @@ if st.button("Analyze flip", type="primary"):
         arv=arv,
         target_profit=target_profit,
     )
+
+    st.subheader(property_details.address or "Unnamed property")
+    detail_a, detail_b, detail_c, detail_d = st.columns(4)
+    detail_a.metric("Beds", property_details.bedrooms)
+    detail_b.metric("Baths", f"{property_details.bathrooms:g}")
+    detail_c.metric("Sq ft", f"{property_details.square_feet:,}")
+    detail_d.metric("Year built", property_details.year_built or "Unknown")
+
+    if property_details.listing_url:
+        st.write("Listing:", property_details.listing_url)
+    if property_details.notes:
+        st.info(property_details.notes)
 
     a, b, c, d = st.columns(4)
     a.metric("Total project cost", f"${flip.total_cost:,.0f}")
