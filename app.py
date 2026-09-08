@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from land_scout.core.flip import analyze_flip
+from land_scout.core.flip_storage import clear_saved_flips, load_saved_flips, save_saved_flips
 from land_scout.core.market import CENTRAL_ILLINOIS_COUNTIES, MARKET_CENTER
 from land_scout.core.property_details import PropertyDetails
 from land_scout.core.screen import screen_deals
@@ -12,7 +13,7 @@ st.title("Land Scout Lite — Central Illinois")
 st.caption(f"Land and flip investment screening centered on {MARKET_CENTER}")
 
 if "saved_flip_deals" not in st.session_state:
-    st.session_state.saved_flip_deals = []
+    st.session_state.saved_flip_deals = load_saved_flips()
 
 st.header("House flip analysis")
 st.subheader("Property details")
@@ -140,6 +141,7 @@ if save_clicked:
             "decision": flip.decision,
         }
     )
+    save_saved_flips(st.session_state.saved_flip_deals)
     st.success(f"Saved: {property_details.address or 'Unnamed property'}")
     render_flip_result(property_details, flip)
 
@@ -182,6 +184,7 @@ if st.session_state.saved_flip_deals:
     )
     if export_col2.button("Clear saved flips"):
         st.session_state.saved_flip_deals = []
+        clear_saved_flips()
         st.rerun()
 
 st.divider()
