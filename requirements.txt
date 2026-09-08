@@ -1,3 +1,8 @@
 pandas
 requests
 streamlit
+scikit-learn
+uvicorn
+fastapi
+python-multipart
+pyyaml
