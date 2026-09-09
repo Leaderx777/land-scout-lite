@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import streamlit as st
 
+from land_scout.core.land_scoring import score_land_candidates
 from land_scout.core.rentcast_avm import RentCastAvmRequest, fetch_rentcast_value_estimate
 from land_scout.core.rentcast_source import RentCastError, RentCastSearch, fetch_rentcast_sale_listings
 from land_scout.core.residential_listings import ingest_property_listings
@@ -17,7 +18,7 @@ PROPERTY_MODES = {
 MODE_HELP = {
     "Residential": "Houses, condos, townhomes, manufactured homes, and 2-4 unit multi-family properties.",
     "Commercial": "RentCast commercial coverage is limited to 5+ unit apartment properties.",
-    "Land": "Vacant, undeveloped parcels. Land mode ranks lots by asking price, acreage, and price per acre.",
+    "Land": "Vacant, undeveloped parcels. Land mode ranks lots with a preliminary deal score using price, price per acre, acreage, and market time.",
 }
 
 
@@ -36,7 +37,7 @@ def _add_mode_metrics(frame: pd.DataFrame, mode: str) -> pd.DataFrame:
         enriched.loc[valid_lot, "acres"] = (enriched.loc[valid_lot, "lot_size"] / 43560.0).round(3)
         valid_acres = enriched["acres"].notna() & (enriched["acres"] > 0)
         enriched.loc[valid_acres, "price_per_acre"] = (enriched.loc[valid_acres, "asking_price"] / enriched.loc[valid_acres, "acres"]).round(0)
-        enriched = enriched.sort_values(["asking_price", "price_per_acre"], na_position="last").reset_index(drop=True)
+        enriched = score_land_candidates(enriched)
     return enriched
 
 
@@ -84,7 +85,7 @@ with option_col2:
     days_old = st.number_input("Listed within last N days (0 = any)", min_value=0, value=0, step=7)
 
 if property_mode == "Land":
-    st.info("Land search uses RentCast's Land property type. Start broad: leave listing age at 0 and raise the price ceiling if a town returns few lots.")
+    st.info("Land search uses RentCast's Land property type. The deal score is a screening tool only; zoning, access, utilities, flood risk, taxes, title, and buildability still need verification.")
 
 if st.button(f"Search {property_mode.lower()} listings", type="primary"):
     st.session_state.live_search_completed = False
@@ -132,8 +133,8 @@ if not intake_listings.empty:
         display_columns = ["address", "city", "asking_price", "bedrooms", "bathrooms", "square_feet", "price_per_sqft", "lot_size", "year_built", "property_type", "days_on_market"]
         download_name = "live_commercial_candidates.csv"
     else:
-        st.subheader("Land candidates — lowest asking price first")
-        display_columns = ["address", "city", "asking_price", "lot_size", "acres", "price_per_acre", "days_on_market"]
+        st.subheader("Land candidates — best preliminary deal score first")
+        display_columns = ["deal_rating", "land_deal_score", "address", "city", "asking_price", "lot_size", "acres", "price_per_acre", "days_on_market"]
         download_name = "live_land_candidates.csv"
 
     available_display_columns = [column for column in display_columns if column in intake_listings.columns]
