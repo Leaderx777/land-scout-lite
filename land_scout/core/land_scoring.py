@@ -7,52 +7,78 @@ def _percentile_score(series: pd.Series, lower_is_better: bool) -> pd.Series:
     numeric = pd.to_numeric(series, errors="coerce")
     if numeric.notna().sum() <= 1:
         return pd.Series(50.0, index=series.index)
-
     ranks = numeric.rank(method="average", pct=True)
     scores = (1.0 - ranks) * 100.0 if lower_is_better else ranks * 100.0
     return scores.fillna(50.0)
 
 
-def score_land_candidates(frame: pd.DataFrame) -> pd.DataFrame:
-    """Add a preliminary 0-100 land deal score using listing-side facts only.
-
-    This is intentionally a screening score, not a valuation. It rewards lower
-    asking price, lower price per acre, more acreage, and longer market time.
-    AVM/comps and due diligence should be used before treating a parcel as a deal.
-    """
-    scored = frame.copy()
-    if scored.empty:
-        scored["land_deal_score"] = pd.Series(dtype="float64")
-        scored["deal_rating"] = pd.Series(dtype="object")
-        return scored
-
-    asking = scored.get("asking_price", pd.Series(index=scored.index, dtype="float64"))
-    ppa = scored.get("price_per_acre", pd.Series(index=scored.index, dtype="float64"))
-    acres = scored.get("acres", pd.Series(index=scored.index, dtype="float64"))
-    dom = scored.get("days_on_market", pd.Series(index=scored.index, dtype="float64"))
-
-    asking_score = _percentile_score(asking, lower_is_better=True)
-    ppa_score = _percentile_score(ppa, lower_is_better=True)
-    acreage_score = _percentile_score(acres, lower_is_better=False)
-    dom_score = _percentile_score(dom, lower_is_better=False)
-
-    scored["land_deal_score"] = (
-        asking_score * 0.30
-        + ppa_score * 0.35
-        + acreage_score * 0.20
-        + dom_score * 0.15
-    ).round(1)
-
-    def rating(score: float) -> str:
+def _rating(score: float, has_value: bool) -> str:
+    if has_value:
         if score >= 75:
             return "Best Deal"
         if score >= 55:
             return "Worth Reviewing"
         return "Skip for now"
+    # Listing-only scores are deliberately not allowed to claim a Best Deal.
+    return "Preliminary review" if score >= 45 else "Low preliminary rank"
 
-    scored["deal_rating"] = scored["land_deal_score"].map(rating)
-    return scored.sort_values(
-        ["land_deal_score", "asking_price"],
-        ascending=[False, True],
-        na_position="last",
-    ).reset_index(drop=True)
+
+def score_land_candidates(frame: pd.DataFrame) -> pd.DataFrame:
+    """Rank land using listing facts, and valuation evidence when available.
+
+    Listing-side facts produce a preliminary score. If estimated_value is present,
+    the score shifts most of its weight to discount-to-value and valuation confidence.
+    """
+    scored = frame.copy()
+    if scored.empty:
+        for column in ("land_deal_score", "deal_rating", "discount_to_value_pct", "estimated_equity"):
+            scored[column] = pd.Series(dtype="float64" if column != "deal_rating" else "object")
+        return scored
+
+    asking = pd.to_numeric(scored.get("asking_price"), errors="coerce")
+    ppa = pd.to_numeric(scored.get("price_per_acre"), errors="coerce")
+    acres = pd.to_numeric(scored.get("acres"), errors="coerce")
+    dom = pd.to_numeric(scored.get("days_on_market"), errors="coerce")
+
+    preliminary = (
+        _percentile_score(asking, True) * 0.30
+        + _percentile_score(ppa, True) * 0.35
+        + _percentile_score(acres, False) * 0.20
+        + _percentile_score(dom, False) * 0.15
+    )
+
+    estimated = pd.to_numeric(scored.get("estimated_value", pd.Series(index=scored.index, dtype="float64")), errors="coerce")
+    low = pd.to_numeric(scored.get("value_range_low", pd.Series(index=scored.index, dtype="float64")), errors="coerce")
+    high = pd.to_numeric(scored.get("value_range_high", pd.Series(index=scored.index, dtype="float64")), errors="coerce")
+    comp_count = pd.to_numeric(scored.get("value_comp_count", pd.Series(index=scored.index, dtype="float64")), errors="coerce")
+
+    has_value = estimated.notna() & (estimated > 0) & asking.notna() & (asking > 0)
+    scored["discount_to_value_pct"] = pd.NA
+    scored["estimated_equity"] = pd.NA
+    scored.loc[has_value, "discount_to_value_pct"] = ((estimated[has_value] - asking[has_value]) / estimated[has_value] * 100.0).round(1)
+    scored.loc[has_value, "estimated_equity"] = (estimated[has_value] - asking[has_value]).round(0)
+
+    # Discount score: 0% discount = 35 points, 20% = 65, 40%+ = 95.
+    discount = pd.to_numeric(scored["discount_to_value_pct"], errors="coerce")
+    discount_score = (35.0 + discount * 1.5).clip(lower=0.0, upper=100.0)
+
+    range_width = pd.Series(index=scored.index, dtype="float64")
+    valid_range = has_value & low.notna() & high.notna() & (high >= low)
+    range_width.loc[valid_range] = ((high[valid_range] - low[valid_range]) / estimated[valid_range] * 100.0)
+    confidence_score = pd.Series(35.0, index=scored.index)
+    confidence_score.loc[range_width <= 35] = 65.0
+    confidence_score.loc[range_width <= 20] = 85.0
+    confidence_score = confidence_score + comp_count.fillna(0).clip(lower=0, upper=15) / 15.0 * 15.0
+    confidence_score = confidence_score.clip(upper=100.0)
+
+    final_score = preliminary.copy()
+    final_score.loc[has_value] = (
+        discount_score.loc[has_value] * 0.60
+        + confidence_score.loc[has_value] * 0.20
+        + preliminary.loc[has_value] * 0.20
+    )
+    scored["land_deal_score"] = final_score.round(1)
+    scored["deal_rating"] = [
+        _rating(float(score), bool(valued)) for score, valued in zip(scored["land_deal_score"], has_value)
+    ]
+    return scored.sort_values(["land_deal_score", "asking_price"], ascending=[False, True], na_position="last").reset_index(drop=True)
