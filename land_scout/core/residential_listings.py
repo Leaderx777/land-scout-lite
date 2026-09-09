@@ -54,6 +54,12 @@ def _number_series(series: pd.Series) -> pd.Series:
     return pd.to_numeric(cleaned, errors="coerce")
 
 
+def _land_listing_mask(property_types: pd.Series) -> pd.Series:
+    """Identify vacant-land style property types without excluding residential oddballs."""
+    normalized = property_types.fillna("").astype(str).str.strip().str.lower()
+    return normalized.str.contains(r"\bland\b|\blot\b|vacant", regex=True)
+
+
 def normalize_residential_listings(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize common residential-listing CSV columns into one schema."""
     if df is None or df.empty:
@@ -97,18 +103,21 @@ def normalize_residential_listings(df: pd.DataFrame) -> pd.DataFrame:
 def ingest_residential_listings(
     df: pd.DataFrame,
     max_purchase_price: float = 50000.0,
+    exclude_land: bool = False,
 ) -> ListingIngestionResult:
-    """Normalize listings and apply the broad residential buy-box price filter.
+    """Normalize listings and apply the broad residential buy-box filter.
 
-    Listings are not filtered by bedroom count or property type; oddballs and
-    one-bedroom properties stay in the pipeline for later resale/comp review.
+    Listings are not filtered by bedroom count. Property type remains broad by
+    default, while callers focused on house flips can set ``exclude_land=True``
+    to remove vacant land and lot listings from the candidate pipeline.
     """
     normalized = normalize_residential_listings(df)
     valid_address = normalized["address"].str.len() > 0
     valid_price = normalized["asking_price"].notna() & (normalized["asking_price"] > 0)
     within_price = normalized["asking_price"] <= float(max_purchase_price)
+    allowed_property_type = ~_land_listing_mask(normalized["property_type"]) if exclude_land else True
 
-    accepted_mask = valid_address & valid_price & within_price
+    accepted_mask = valid_address & valid_price & within_price & allowed_property_type
     accepted = normalized.loc[accepted_mask].copy()
     rejected = normalized.loc[~accepted_mask].copy()
 
