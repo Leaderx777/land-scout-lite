@@ -44,6 +44,23 @@ def test_keeps_one_bedroom_and_oddball_properties():
     assert set(result.listings["property_type"].tolist()) == {"cottage", "duplex"}
 
 
+def test_can_exclude_land_while_keeping_residential_oddballs():
+    source = pd.DataFrame(
+        [
+            {"address": "10 House St", "price": 30000, "property_type": "Single Family"},
+            {"address": "20 Duplex Rd", "price": 45000, "property_type": "Duplex"},
+            {"address": "30 Lot Ln", "price": 7000, "property_type": "Land"},
+            {"address": "40 Acre Rd", "price": 9000, "property_type": "Vacant Land"},
+            {"address": "50 Parcel Ave", "price": 10000, "property_type": "Residential Lot"},
+        ]
+    )
+
+    result = ingest_residential_listings(source, exclude_land=True)
+
+    assert result.listings["address"].tolist() == ["10 House St", "20 Duplex Rd"]
+    assert set(result.rejected["address"].tolist()) == {"30 Lot Ln", "40 Acre Rd", "50 Parcel Ave"}
+
+
 def test_rejects_missing_address_invalid_price_and_over_budget():
     source = pd.DataFrame(
         [
