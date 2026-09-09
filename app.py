@@ -6,6 +6,10 @@ from land_scout.core.flip import analyze_flip
 from land_scout.core.flip_storage import clear_saved_flips, load_saved_flips, save_saved_flips
 from land_scout.core.market import CENTRAL_ILLINOIS_COUNTIES, MARKET_CENTER
 from land_scout.core.property_details import PropertyDetails
+from land_scout.core.residential_listings import (
+    analyze_ready_residential_listings,
+    ingest_residential_listings,
+)
 from land_scout.core.screen import screen_deals
 from land_scout.core.value_predictor import estimate_land_value
 
@@ -16,6 +20,109 @@ st.caption(f"Land and flip investment screening centered on {MARKET_CENTER}")
 if "saved_flip_deals" not in st.session_state:
     st.session_state.saved_flip_deals = load_saved_flips()
 
+st.header("Residential listing intake")
+st.caption(
+    "Upload residential listings from a CSV export or other permitted data source. "
+    "The intake keeps all residential property types and bedroom counts, then filters by price."
+)
+listing_col1, listing_col2 = st.columns([1, 1])
+with listing_col1:
+    residential_upload = st.file_uploader(
+        "Upload residential listings CSV",
+        type=["csv"],
+        key="residential_listing_upload",
+    )
+with listing_col2:
+    residential_max_price = st.number_input(
+        "Maximum purchase / asking price ($)",
+        min_value=0.0,
+        value=50000.0,
+        step=1000.0,
+        key="residential_max_price",
+    )
+
+if residential_upload is not None:
+    try:
+        source_listings = pd.read_csv(residential_upload)
+        intake = ingest_residential_listings(
+            source_listings,
+            max_purchase_price=residential_max_price,
+        )
+
+        intake_a, intake_b, intake_c = st.columns(3)
+        intake_a.metric("Uploaded", len(source_listings))
+        intake_b.metric("In buy box", len(intake.listings))
+        intake_c.metric("Filtered / invalid", len(intake.rejected))
+
+        if intake.listings.empty:
+            st.warning("No uploaded listings passed the current price/address screen.")
+        else:
+            st.subheader("Residential candidates")
+            listing_display_columns = [
+                "address",
+                "city",
+                "asking_price",
+                "bedrooms",
+                "bathrooms",
+                "square_feet",
+                "year_built",
+                "property_type",
+                "screening_status",
+                "rehab_estimate",
+                "arv_estimate",
+                "listing_url",
+            ]
+            st.dataframe(
+                intake.listings[listing_display_columns],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.download_button(
+                "Download screened residential listings",
+                intake.listings.to_csv(index=False).encode("utf-8"),
+                file_name="screened_residential_listings.csv",
+                mime="text/csv",
+            )
+
+            ranked_residential = analyze_ready_residential_listings(intake.listings)
+            if ranked_residential.empty:
+                st.info(
+                    "These listings are in the price buy box, but none have both rehab and ARV estimates yet. "
+                    "Add those estimates before treating any listing as a BUY/REVIEW/PASS candidate."
+                )
+            else:
+                st.subheader("Ready listings ranked by flip economics")
+                ranked_columns = [
+                    "address",
+                    "decision",
+                    "asking_price",
+                    "rehab_estimate",
+                    "arv_estimate",
+                    "projected_profit",
+                    "roi_percent",
+                    "max_offer",
+                    "bedrooms",
+                    "bathrooms",
+                    "square_feet",
+                    "property_type",
+                    "listing_url",
+                ]
+                st.dataframe(
+                    ranked_residential[ranked_columns],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.download_button(
+                    "Download ranked residential opportunities",
+                    ranked_residential.to_csv(index=False).encode("utf-8"),
+                    file_name="ranked_residential_opportunities.csv",
+                    mime="text/csv",
+                )
+    except Exception as exc:
+        st.error(f"Unable to read residential listings: {exc}")
+
+st.divider()
 st.header("House flip analysis")
 st.subheader("Property details")
 property_col1, property_col2 = st.columns(2)
