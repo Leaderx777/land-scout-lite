@@ -45,6 +45,7 @@ def sample_record():
         "bedrooms": 2,
         "bathrooms": 1,
         "squareFootage": 950,
+        "lotSize": 8712,
         "yearBuilt": 1940,
         "status": "Active",
         "price": 42000,
@@ -60,6 +61,7 @@ def test_records_convert_to_property_scout_schema():
     assert frame.loc[0, "address"] == "123 Main St, Galesburg, IL 61401"
     assert frame.loc[0, "asking_price"] == 42000
     assert frame.loc[0, "square_feet"] == 950
+    assert frame.loc[0, "lot_size"] == 8712
     assert frame.loc[0, "property_type"] == "Single Family"
     assert frame.loc[0, "source"] == "RentCast"
     assert frame.loc[0, "listing_id"].startswith("123-Main")
@@ -83,6 +85,30 @@ def test_fetch_builds_active_price_filtered_city_query():
     assert call["params"]["limit"] == 25
 
 
+def test_property_types_are_sent_as_rentcast_multi_value_filter():
+    session = FakeSession(FakeResponse(payload=[]))
+    fetch_rentcast_sale_listings(
+        "secret",
+        RentCastSearch(
+            city="Canton",
+            state="IL",
+            property_types=("Single Family", "Multi-Family"),
+        ),
+        session=session,
+    )
+    assert session.calls[0]["params"]["propertyType"] == "Single Family|Multi-Family"
+
+
+def test_land_mode_can_query_land_only():
+    session = FakeSession(FakeResponse(payload=[]))
+    fetch_rentcast_sale_listings(
+        "secret",
+        RentCastSearch(city="Galesburg", state="IL", property_types=("Land",)),
+        session=session,
+    )
+    assert session.calls[0]["params"]["propertyType"] == "Land"
+
+
 def test_zip_search_uses_zip_instead_of_city():
     session = FakeSession(FakeResponse(payload=[]))
     fetch_rentcast_sale_listings(
@@ -98,6 +124,11 @@ def test_zip_search_uses_zip_instead_of_city():
 def test_search_requires_location():
     with pytest.raises(ValueError):
         RentCastSearch().validate()
+
+
+def test_search_rejects_unsupported_property_type():
+    with pytest.raises(ValueError, match="Unsupported RentCast property type"):
+        RentCastSearch(city="Galesburg", property_types=("Retail",)).validate()
 
 
 def test_auth_error_is_clear():
