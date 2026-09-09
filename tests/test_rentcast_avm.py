@@ -49,10 +49,12 @@ def sample_payload():
                 "formattedAddress": "120 Main St, Galesburg, IL 61401",
                 "price": 112000,
                 "status": "Inactive",
+                "propertyType": "Single Family",
                 "listingType": "Standard",
                 "bedrooms": 3,
                 "bathrooms": 1,
                 "squareFootage": 1180,
+                "lotSize": 8500,
                 "distance": 0.2,
                 "daysOld": 45,
                 "correlation": 0.94,
@@ -61,10 +63,12 @@ def sample_payload():
                 "formattedAddress": "222 Oak St, Galesburg, IL 61401",
                 "price": 106000,
                 "status": "Inactive",
+                "propertyType": "Single Family",
                 "listingType": "Standard",
                 "bedrooms": 3,
                 "bathrooms": 1,
                 "squareFootage": 1210,
+                "lotSize": 9000,
                 "distance": 0.5,
                 "daysOld": 80,
                 "correlation": 0.90,
@@ -73,10 +77,12 @@ def sample_payload():
                 "formattedAddress": "14 Pine St, Galesburg, IL 61401",
                 "price": 115000,
                 "status": "Inactive",
+                "propertyType": "Single Family",
                 "listingType": "Standard",
                 "bedrooms": 3,
                 "bathrooms": 1.5,
                 "squareFootage": 1250,
+                "lotSize": 9200,
                 "distance": 0.8,
                 "daysOld": 120,
                 "correlation": 0.87,
@@ -92,6 +98,8 @@ def test_parse_avm_payload_returns_value_range_and_comps():
     assert result.range_high == 122000
     assert result.comp_count == 3
     assert result.comparables.iloc[0]["distance_miles"] == 0.2
+    assert result.comparables.iloc[0]["lot_size"] == 8500
+    assert result.comparables.iloc[0]["property_type"] == "Single Family"
     assert result.confidence_label == "MEDIUM"
 
 
@@ -124,6 +132,11 @@ def test_fetch_avm_sends_subject_attributes_and_comp_settings():
 def test_avm_requires_address():
     with pytest.raises(ValueError, match="full property address"):
         RentCastAvmRequest(address="").validate()
+
+
+def test_avm_rejects_comp_count_outside_api_range():
+    with pytest.raises(ValueError, match="between 5 and 25"):
+        RentCastAvmRequest(address="123 Main St", comp_count=4).validate()
 
 
 def test_avm_rejects_bad_api_key():
