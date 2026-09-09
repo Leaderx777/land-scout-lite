@@ -7,6 +7,15 @@ import requests
 
 
 RENTCAST_SALE_LISTINGS_URL = "https://api.rentcast.io/v1/listings/sale"
+RENTCAST_PROPERTY_TYPES = (
+    "Single Family",
+    "Condo",
+    "Townhouse",
+    "Manufactured",
+    "Multi-Family",
+    "Apartment",
+    "Land",
+)
 
 
 class RentCastError(RuntimeError):
@@ -22,6 +31,7 @@ class RentCastSearch:
     limit: int = 50
     offset: int = 0
     days_old: int | None = None
+    property_types: tuple[str, ...] = ()
 
     def validate(self) -> None:
         if not self.city.strip() and not self.zip_code.strip():
@@ -34,6 +44,9 @@ class RentCastSearch:
             raise ValueError("RentCast limit must be between 1 and 500.")
         if int(self.offset) < 0:
             raise ValueError("RentCast offset cannot be negative.")
+        invalid_types = [value for value in self.property_types if value not in RENTCAST_PROPERTY_TYPES]
+        if invalid_types:
+            raise ValueError(f"Unsupported RentCast property type: {invalid_types[0]}")
 
 
 def _request_params(search: RentCastSearch) -> dict[str, object]:
@@ -51,6 +64,8 @@ def _request_params(search: RentCastSearch) -> dict[str, object]:
         params["state"] = search.state.strip().upper()
     if search.days_old is not None and int(search.days_old) > 0:
         params["daysOld"] = f"1:{int(search.days_old)}"
+    if search.property_types:
+        params["propertyType"] = "|".join(search.property_types)
     return params
 
 
@@ -64,6 +79,7 @@ def rentcast_records_to_dataframe(records: list[dict]) -> pd.DataFrame:
         mls_number = record.get("mlsNumber") or ""
         listing_type = record.get("listingType") or ""
         description_bits = [str(v) for v in (listing_type, mls_name, mls_number) if v]
+        hoa = record.get("hoa") if isinstance(record.get("hoa"), dict) else {}
         rows.append(
             {
                 "address": record.get("formattedAddress") or record.get("addressLine1") or "",
@@ -74,6 +90,7 @@ def rentcast_records_to_dataframe(records: list[dict]) -> pd.DataFrame:
                 "bedrooms": record.get("bedrooms"),
                 "bathrooms": record.get("bathrooms"),
                 "square_feet": record.get("squareFootage"),
+                "lot_size": record.get("lotSize"),
                 "year_built": record.get("yearBuilt"),
                 "property_type": record.get("propertyType") or "",
                 "listing_url": "",
@@ -84,7 +101,10 @@ def rentcast_records_to_dataframe(records: list[dict]) -> pd.DataFrame:
                 "county": record.get("county") or "",
                 "listing_status": record.get("status") or "",
                 "listing_type": listing_type,
+                "listed_date": record.get("listedDate"),
+                "last_seen_date": record.get("lastSeenDate"),
                 "days_on_market": record.get("daysOnMarket"),
+                "hoa_fee": hoa.get("fee"),
                 "latitude": record.get("latitude"),
                 "longitude": record.get("longitude"),
                 "source": "RentCast",
