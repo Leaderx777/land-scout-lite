@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 
+from land_scout.core.comps import ComparableSale, estimate_arv_from_comps
 from land_scout.core.flip import analyze_flip
 from land_scout.core.flip_storage import clear_saved_flips, load_saved_flips, save_saved_flips
 from land_scout.core.market import CENTRAL_ILLINOIS_COUNTIES, MARKET_CENTER
@@ -33,6 +34,70 @@ with property_col2:
         placeholder="Condition, layout, neighborhood, known repairs, seller motivation, etc.",
     )
 
+st.subheader("Comparable sales / ARV")
+st.caption(
+    "Enter sold comparable properties. The estimator uses the median sale price per square foot. "
+    "Closer, similar properties are better comps."
+)
+
+comp_template = pd.DataFrame(
+    [
+        {"address": "", "sale_price": 0.0, "square_feet": 0, "bedrooms": 0, "bathrooms": 0.0, "distance_miles": 0.0},
+        {"address": "", "sale_price": 0.0, "square_feet": 0, "bedrooms": 0, "bathrooms": 0.0, "distance_miles": 0.0},
+        {"address": "", "sale_price": 0.0, "square_feet": 0, "bedrooms": 0, "bathrooms": 0.0, "distance_miles": 0.0},
+    ]
+)
+
+edited_comps = st.data_editor(
+    comp_template,
+    num_rows="dynamic",
+    use_container_width=True,
+    hide_index=True,
+    key="flip_comps_editor",
+    column_config={
+        "address": st.column_config.TextColumn("Comp address"),
+        "sale_price": st.column_config.NumberColumn("Sold price ($)", min_value=0.0, step=1000.0, format="$%.0f"),
+        "square_feet": st.column_config.NumberColumn("Sq ft", min_value=0, step=50),
+        "bedrooms": st.column_config.NumberColumn("Beds", min_value=0, step=1),
+        "bathrooms": st.column_config.NumberColumn("Baths", min_value=0.0, step=0.5),
+        "distance_miles": st.column_config.NumberColumn("Miles away", min_value=0.0, step=0.1, format="%.1f"),
+    },
+)
+
+comps = []
+for _, row in edited_comps.iterrows():
+    sale_price = float(row.get("sale_price", 0) or 0)
+    comp_sqft = int(row.get("square_feet", 0) or 0)
+    if sale_price > 0 and comp_sqft > 0:
+        comps.append(
+            ComparableSale(
+                address=str(row.get("address", "") or "").strip(),
+                sale_price=sale_price,
+                square_feet=comp_sqft,
+                bedrooms=int(row.get("bedrooms", 0) or 0),
+                bathrooms=float(row.get("bathrooms", 0) or 0),
+                distance_miles=float(row.get("distance_miles", 0) or 0),
+            )
+        )
+
+comp_arv = None
+if comps and square_feet > 0:
+    try:
+        comp_arv = estimate_arv_from_comps(int(square_feet), comps)
+        comp_a, comp_b, comp_c, comp_d = st.columns(4)
+        comp_a.metric("Comp-based ARV", f"${comp_arv.estimated_arv:,.0f}")
+        comp_b.metric("Median $ / sq ft", f"${comp_arv.median_price_per_sqft:,.0f}")
+        comp_c.metric("ARV range", f"${comp_arv.low_arv:,.0f}–${comp_arv.high_arv:,.0f}")
+        comp_d.metric("Confidence", comp_arv.confidence)
+        st.caption(
+            f"Based on {comp_arv.comp_count} valid comp(s); price-per-square-foot spread: "
+            f"{comp_arv.spread_percent:.1f}%."
+        )
+    except ValueError as exc:
+        st.warning(str(exc))
+else:
+    st.info("Add at least one sold comp with a sale price and square footage to calculate a comp-based ARV.")
+
 st.subheader("Deal numbers")
 flip_col1, flip_col2 = st.columns(2)
 
@@ -51,12 +116,19 @@ with flip_col2:
     selling_cost = st.number_input(
         "Selling / closing costs ($)", min_value=0.0, value=9000.0, step=500.0
     )
-    arv = st.number_input(
-        "After-repair value (ARV) ($)", min_value=0.0, value=110000.0, step=1000.0
+    manual_arv = st.number_input(
+        "Manual ARV ($)", min_value=0.0, value=110000.0, step=1000.0
     )
     target_profit = st.number_input(
         "Target profit ($)", min_value=0.0, value=25000.0, step=1000.0
     )
+
+arv_source_options = ["Manual ARV"]
+if comp_arv is not None:
+    arv_source_options.append("Comparable sales")
+arv_source = st.radio("ARV used for analysis", arv_source_options, horizontal=True)
+analysis_arv = comp_arv.estimated_arv if arv_source == "Comparable sales" and comp_arv else manual_arv
+st.caption(f"ARV currently used in flip math: ${analysis_arv:,.0f}")
 
 
 def current_property_details() -> PropertyDetails:
@@ -77,7 +149,7 @@ def current_flip_analysis():
         rehab_cost=rehab_cost,
         holding_cost=holding_cost,
         selling_cost=selling_cost,
-        arv=arv,
+        arv=analysis_arv,
         target_profit=target_profit,
     )
 
@@ -134,6 +206,9 @@ if save_clicked:
             "holding_cost": flip.holding_cost,
             "selling_cost": flip.selling_cost,
             "arv": flip.arv,
+            "arv_source": arv_source,
+            "comp_count": comp_arv.comp_count if comp_arv else 0,
+            "arv_confidence": comp_arv.confidence if comp_arv else "MANUAL",
             "total_cost": flip.total_cost,
             "projected_profit": flip.projected_profit,
             "roi_percent": flip.roi_percent,
@@ -173,6 +248,8 @@ if st.session_state.saved_flip_deals:
         "bathrooms",
         "square_feet",
     ]
+    optional_columns = ["arv_source", "comp_count", "arv_confidence"]
+    display_columns.extend(column for column in optional_columns if column in ranked_flips.columns)
     st.dataframe(ranked_flips[display_columns], use_container_width=True)
 
     export_col1, export_col2 = st.columns([1, 1])
