@@ -2,8 +2,10 @@ import pytest
 
 from land_scout.core.rentcast_avm import (
     RentCastAvmRequest,
+    fetch_rentcast_comparables,
     fetch_rentcast_value_estimate,
     parse_rentcast_avm_payload,
+    parse_rentcast_comparables_payload,
 )
 from land_scout.core.rentcast_source import RentCastError
 
@@ -115,9 +117,7 @@ def test_fetch_avm_sends_subject_attributes_and_comp_settings():
         days_old=180,
         comp_count=10,
     )
-
     fetch_rentcast_value_estimate("abc123", request, session=session)
-
     assert session.last_params["address"] == "123 Main St, Galesburg, IL 61401"
     assert session.last_params["propertyType"] == "Single Family"
     assert session.last_params["bedrooms"] == 3.0
@@ -152,3 +152,27 @@ def test_avm_rejects_bad_api_key():
 def test_avm_rejects_missing_value_range():
     with pytest.raises(RentCastError, match="missing a usable value range"):
         parse_rentcast_avm_payload({"price": 100000, "comparables": []})
+
+
+def test_comparables_can_be_parsed_when_avm_values_are_zero():
+    payload = sample_payload()
+    payload["price"] = 0
+    payload["priceRangeLow"] = 0
+    payload["priceRangeHigh"] = 0
+    comps = parse_rentcast_comparables_payload(payload)
+    assert len(comps) == 3
+    assert comps.iloc[0]["price"] == 112000
+
+
+def test_fetch_comparables_does_not_require_positive_avm():
+    payload = sample_payload()
+    payload["price"] = 0
+    payload["priceRangeLow"] = 0
+    payload["priceRangeHigh"] = 0
+    session = FakeSession(FakeResponse(payload=payload))
+    comps = fetch_rentcast_comparables(
+        "abc123",
+        RentCastAvmRequest(address="123 Main St, Galesburg, IL 61401"),
+        session=session,
+    )
+    assert len(comps) == 3
