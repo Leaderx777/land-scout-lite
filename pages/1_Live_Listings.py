@@ -9,14 +9,66 @@ from land_scout.core.rentcast_source import (
     RentCastSearch,
     fetch_rentcast_sale_listings,
 )
-from land_scout.core.residential_listings import ingest_residential_listings
+from land_scout.core.residential_listings import ingest_property_listings
 
 
-st.set_page_config(page_title="Live Listings", layout="wide")
-st.title("Live Residential Listings")
-st.caption(
-    "Search active for-sale listings from RentCast, then use RentCast valuation and comparable data to assist ARV review."
+PROPERTY_MODES = {
+    "Residential": (
+        "Single Family",
+        "Condo",
+        "Townhouse",
+        "Manufactured",
+        "Multi-Family",
+    ),
+    "Commercial": ("Apartment",),
+    "Land": ("Land",),
+}
+
+MODE_HELP = {
+    "Residential": "Houses, condos, townhomes, manufactured homes, and 2-4 unit multi-family properties.",
+    "Commercial": (
+        "Current RentCast coverage is commercial multi-family only: apartment buildings and complexes with 5+ units. "
+        "Office, retail, industrial, agricultural, and other non-residential commercial properties will require another data source."
+    ),
+    "Land": "Vacant land and undeveloped parcels. RentCast coverage is strongest for smaller residential and urban lots.",
+}
+
+
+def _add_mode_metrics(frame: pd.DataFrame, mode: str) -> pd.DataFrame:
+    enriched = frame.copy()
+    if enriched.empty:
+        return enriched
+
+    if "square_feet" in enriched.columns:
+        valid_sqft = enriched["square_feet"].notna() & (enriched["square_feet"] > 0)
+        enriched["price_per_sqft"] = pd.NA
+        enriched.loc[valid_sqft, "price_per_sqft"] = (
+            enriched.loc[valid_sqft, "asking_price"] / enriched.loc[valid_sqft, "square_feet"]
+        ).round(2)
+
+    if mode == "Land" and "lot_size" in enriched.columns:
+        valid_lot = enriched["lot_size"].notna() & (enriched["lot_size"] > 0)
+        enriched["acres"] = pd.NA
+        enriched["price_per_acre"] = pd.NA
+        enriched.loc[valid_lot, "acres"] = (enriched.loc[valid_lot, "lot_size"] / 43560.0).round(3)
+        valid_acres = enriched["acres"].notna() & (enriched["acres"] > 0)
+        enriched.loc[valid_acres, "price_per_acre"] = (
+            enriched.loc[valid_acres, "asking_price"] / enriched.loc[valid_acres, "acres"]
+        ).round(0)
+
+    return enriched
+
+
+st.set_page_config(page_title="Property Scout", layout="wide")
+st.title("Property Scout")
+st.caption("Search live for-sale listings, separate them by investment type, and review market-value comps.")
+
+property_mode = st.radio(
+    "Property category",
+    list(PROPERTY_MODES),
+    horizontal=True,
 )
+st.caption(MODE_HELP[property_mode])
 
 if "live_intake_listings" not in st.session_state:
     st.session_state.live_intake_listings = pd.DataFrame()
@@ -24,13 +76,15 @@ if "live_rejected_listings" not in st.session_state:
     st.session_state.live_rejected_listings = pd.DataFrame()
 if "live_source_count" not in st.session_state:
     st.session_state.live_source_count = 0
+if "live_result_mode" not in st.session_state:
+    st.session_state.live_result_mode = ""
 
 saved_key = os.getenv("RENTCAST_API_KEY", "")
 api_key = st.text_input(
     "RentCast API key",
     value=saved_key,
     type="password",
-    help="Set RENTCAST_API_KEY in your environment to avoid retyping the key.",
+    help="Set RENTCAST_API_KEY in Streamlit secrets or your environment to avoid retyping the key.",
 )
 
 search_col1, search_col2, search_col3 = st.columns(3)
@@ -69,8 +123,9 @@ with option_col2:
         step=7,
     )
 
-if st.button("Search live listings", type="primary"):
+if st.button(f"Search {property_mode.lower()} listings", type="primary"):
     try:
+        selected_types = PROPERTY_MODES[property_mode]
         source_df = fetch_rentcast_sale_listings(
             api_key,
             RentCastSearch(
@@ -80,16 +135,18 @@ if st.button("Search live listings", type="primary"):
                 max_price=max_price,
                 limit=int(limit),
                 days_old=int(days_old) if days_old else None,
+                property_types=selected_types,
             ),
         )
-        intake = ingest_residential_listings(
+        intake = ingest_property_listings(
             source_df,
             max_purchase_price=max_price,
-            exclude_land=True,
+            allowed_property_types=selected_types,
         )
         st.session_state.live_source_count = len(source_df)
         st.session_state.live_intake_listings = intake.listings
         st.session_state.live_rejected_listings = intake.rejected
+        st.session_state.live_result_mode = property_mode
     except ValueError as exc:
         st.warning(str(exc))
     except RentCastError as exc:
@@ -97,47 +154,101 @@ if st.button("Search live listings", type="primary"):
     except Exception as exc:
         st.error(f"Unable to search live listings: {exc}")
 
-intake_listings = st.session_state.live_intake_listings
-rejected_listings = st.session_state.live_rejected_listings
+if st.session_state.live_result_mode and st.session_state.live_result_mode != property_mode:
+    st.info(f"Select Search to load {property_mode.lower()} results for this area.")
+    intake_listings = pd.DataFrame()
+    rejected_listings = pd.DataFrame()
+else:
+    intake_listings = _add_mode_metrics(st.session_state.live_intake_listings, property_mode)
+    rejected_listings = st.session_state.live_rejected_listings
 
-if st.session_state.live_source_count or not intake_listings.empty:
+if st.session_state.live_result_mode == property_mode and (
+    st.session_state.live_source_count or not intake_listings.empty
+):
     metric_a, metric_b, metric_c = st.columns(3)
     metric_a.metric("Live listings returned", st.session_state.live_source_count)
     metric_b.metric("In buy box", len(intake_listings))
     metric_c.metric("Filtered / invalid", len(rejected_listings))
 
 if not intake_listings.empty:
-    st.subheader("Live flip candidates")
-    display_columns = [
-        "address",
-        "city",
-        "asking_price",
-        "bedrooms",
-        "bathrooms",
-        "square_feet",
-        "year_built",
-        "property_type",
-        "screening_status",
-    ]
+    if property_mode == "Residential":
+        st.subheader("Residential candidates")
+        display_columns = [
+            "address",
+            "city",
+            "asking_price",
+            "bedrooms",
+            "bathrooms",
+            "square_feet",
+            "price_per_sqft",
+            "year_built",
+            "property_type",
+            "days_on_market",
+        ]
+        download_name = "live_residential_candidates.csv"
+    elif property_mode == "Commercial":
+        st.subheader("Commercial multi-family candidates")
+        display_columns = [
+            "address",
+            "city",
+            "asking_price",
+            "bedrooms",
+            "bathrooms",
+            "square_feet",
+            "price_per_sqft",
+            "lot_size",
+            "year_built",
+            "property_type",
+            "days_on_market",
+        ]
+        download_name = "live_commercial_candidates.csv"
+    else:
+        st.subheader("Land candidates")
+        display_columns = [
+            "address",
+            "city",
+            "asking_price",
+            "lot_size",
+            "acres",
+            "price_per_acre",
+            "property_type",
+            "days_on_market",
+        ]
+        download_name = "live_land_candidates.csv"
+
+    available_display_columns = [column for column in display_columns if column in intake_listings.columns]
     st.dataframe(
-        intake_listings[display_columns],
-        use_container_width=True,
+        intake_listings[available_display_columns],
+        width="stretch",
         hide_index=True,
     )
 
     st.download_button(
-        "Download live candidates CSV",
+        "Download candidates CSV",
         intake_listings.to_csv(index=False).encode("utf-8"),
-        file_name="live_residential_candidates.csv",
+        file_name=download_name,
         mime="text/csv",
     )
 
     st.divider()
-    st.header("ARV + comparable review")
-    st.caption(
-        "Select one live candidate and request RentCast's value estimate plus comparable sale listings. "
-        "This is an ARV aid, not a substitute for verifying condition and repair scope."
-    )
+    if property_mode == "Residential":
+        st.header("ARV + comparable review")
+        st.caption(
+            "Use RentCast's current value estimate and comparable sale listings as an ARV aid. "
+            "Condition and repair scope still need to be verified before making an offer."
+        )
+    elif property_mode == "Commercial":
+        st.header("Commercial value + comparable review")
+        st.caption(
+            "For Apartment properties, RentCast's value estimate represents the entire building. "
+            "Income, expenses, occupancy, cap rate, and unit-level due diligence still need separate review."
+        )
+    else:
+        st.header("Land value + comparable review")
+        st.caption(
+            "Use the value estimate and nearby land comps as an initial screen. Zoning, access, utilities, flood risk, "
+            "survey/title issues, and buildability must be checked separately."
+        )
 
     candidate_labels = []
     candidate_indexes = []
@@ -159,9 +270,9 @@ if not intake_listings.empty:
     with avm_col2:
         comp_days = st.number_input("Comparable lookback (days)", min_value=1, value=270, step=30)
     with avm_col3:
-        comp_count = st.number_input("Comparable count", min_value=1, max_value=50, value=20, step=1)
+        comp_count = st.number_input("Comparable count", min_value=5, max_value=25, value=15, step=1)
 
-    if st.button("Get ARV estimate + comps"):
+    if st.button("Get value estimate + comps"):
         try:
             avm = fetch_rentcast_value_estimate(
                 api_key,
@@ -178,7 +289,8 @@ if not intake_listings.empty:
             )
 
             arv_a, arv_b, arv_c, arv_d = st.columns(4)
-            arv_a.metric("RentCast value / ARV estimate", f"${avm.estimated_value:,.0f}")
+            value_label = "RentCast value / ARV estimate" if property_mode == "Residential" else "RentCast value estimate"
+            arv_a.metric(value_label, f"${avm.estimated_value:,.0f}")
             arv_b.metric("Range low", f"${avm.range_low:,.0f}")
             arv_c.metric("Range high", f"${avm.range_high:,.0f}")
             arv_d.metric("Scout confidence", avm.confidence_label)
@@ -193,9 +305,11 @@ if not intake_listings.empty:
                     "address",
                     "price",
                     "status",
+                    "property_type",
                     "bedrooms",
                     "bathrooms",
                     "square_feet",
+                    "lot_size",
                     "year_built",
                     "distance_miles",
                     "days_old",
@@ -205,7 +319,7 @@ if not intake_listings.empty:
                 available_columns = [column for column in comp_columns if column in avm.comparables.columns]
                 st.dataframe(
                     avm.comparables[available_columns],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
                 st.download_button(
@@ -221,13 +335,13 @@ if not intake_listings.empty:
         except RentCastError as exc:
             st.error(str(exc))
         except Exception as exc:
-            st.error(f"Unable to retrieve ARV/comps: {exc}")
+            st.error(f"Unable to retrieve value estimate/comps: {exc}")
 
 if not rejected_listings.empty:
     with st.expander("Show filtered / invalid listings"):
-        st.dataframe(rejected_listings, use_container_width=True, hide_index=True)
+        st.dataframe(rejected_listings, width="stretch", hide_index=True)
 
 st.divider()
 st.caption(
-    "Data source: RentCast sale listings and value-estimate APIs. API credentials are supplied locally and are not stored in this repository."
+    "Data source: RentCast sale-listing and value-estimate APIs. API credentials are supplied locally and are not stored in this repository."
 )
