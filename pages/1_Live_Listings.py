@@ -82,7 +82,11 @@ if st.button("Search live listings", type="primary"):
                 days_old=int(days_old) if days_old else None,
             ),
         )
-        intake = ingest_residential_listings(source_df, max_purchase_price=max_price)
+        intake = ingest_residential_listings(
+            source_df,
+            max_purchase_price=max_price,
+            exclude_land=True,
+        )
         st.session_state.live_source_count = len(source_df)
         st.session_state.live_intake_listings = intake.listings
         st.session_state.live_rejected_listings = intake.rejected
