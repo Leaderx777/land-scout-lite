@@ -4,7 +4,7 @@ Land Scout Lite is a Streamlit-based Central Illinois property-deal screening pr
 
 ## House-flip workflow
 
-The app now includes a manual residential flip analyzer. Enter property details and deal assumptions to calculate:
+The app includes a residential flip analyzer. Enter property details and deal assumptions to calculate:
 
 - total project cost
 - projected profit
@@ -20,9 +20,28 @@ Current default flip rules:
 
 Analyzed properties can be saved, ranked, exported to CSV, and reloaded after the app restarts. Saved deal data is stored locally in `data/saved_flip_deals.json` and is excluded from Git.
 
+## Live residential listings
+
+A Streamlit page at `pages/1_Live_Listings.py` can query active for-sale listings from the RentCast sale-listings API and run the returned properties through Property Scout's residential price screen.
+
+The live search supports the current focus areas of Galesburg, Canton, Brimfield, and Kickapoo, plus custom Illinois cities or ZIP codes. It searches active listings and applies the current maximum asking-price rule without excluding one-bedroom homes or unusual residential property types.
+
+RentCast requires an API key. Either enter it in the Live Listings page or set it locally before starting Streamlit:
+
+```powershell
+$env:RENTCAST_API_KEY="your-key-here"
+python -m streamlit run app.py
+```
+
+The key is never committed to this repository.
+
+Live feed properties initially remain `NEEDS_ARV` because a listing feed does not provide a trustworthy after-repair value or repair budget. ARV and rehab must be developed separately before a listing can be treated as BUY / REVIEW / PASS.
+
+The existing residential CSV intake remains available for exports from other permitted listing sources.
+
 ## Initial target market
 
-The first screening region is centered on Peoria and currently includes:
+The first screening region is centered on Central Illinois and currently includes:
 
 - Peoria
 - Tazewell
@@ -103,14 +122,14 @@ Then start Land Scout in a second terminal:
 git clone https://github.com/Leaderx777/land-scout-lite.git
 cd land-scout-lite
 pip install -r requirements.txt
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 ## Real-data direction
 
 Land Value Predictor includes an official Peoria County GIS/sales-data connector. Peoria is therefore the first county where the project can begin replacing synthetic training inputs with real public parcel and transaction data.
 
-The current API model itself is still synthetic until the real-data feature engineering and validation pipeline is complete. Rankings should therefore be treated as development/demo outputs, not as investment or appraisal conclusions.
+The current land API model itself is still synthetic until the real-data feature engineering and validation pipeline is complete. Rankings should therefore be treated as development/demo outputs, not as investment or appraisal conclusions.
 
 ## Tech stack
 
@@ -119,11 +138,12 @@ The current API model itself is still synthetic until the real-data feature engi
 - pandas
 - requests
 - FastAPI integration through Land Value Predictor
+- RentCast live sale-listing integration
 - JSON persistence for saved flip opportunities
 - batch CSV screening and export
 
 ## Tests
 
 ```bash
-pytest
+python -m pytest
 ```
