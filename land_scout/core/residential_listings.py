@@ -17,8 +17,10 @@ COLUMN_ALIASES = {
     "bedrooms": ["bedrooms", "beds", "bed"],
     "bathrooms": ["bathrooms", "baths", "bath"],
     "square_feet": ["square_feet", "sqft", "sq_ft", "living_area"],
+    "lot_size": ["lot_size", "lotsize", "lot_sqft", "lot_square_feet"],
     "year_built": ["year_built", "built", "year"],
     "property_type": ["property_type", "type", "home_type"],
+    "days_on_market": ["days_on_market", "dom"],
     "listing_url": ["listing_url", "url", "link"],
     "description": ["description", "remarks", "notes"],
     "rehab_estimate": ["rehab_estimate", "rehab", "repair_estimate", "repairs"],
@@ -61,7 +63,7 @@ def _land_listing_mask(property_types: pd.Series) -> pd.Series:
 
 
 def normalize_residential_listings(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize common residential-listing CSV columns into one schema."""
+    """Normalize common property-listing columns into one Property Scout schema."""
     if df is None or df.empty:
         return pd.DataFrame(columns=list(COLUMN_ALIASES))
 
@@ -90,7 +92,9 @@ def normalize_residential_listings(df: pd.DataFrame) -> pd.DataFrame:
         "bedrooms",
         "bathrooms",
         "square_feet",
+        "lot_size",
         "year_built",
+        "days_on_market",
         "rehab_estimate",
         "arv_estimate",
     ]
@@ -100,12 +104,43 @@ def normalize_residential_listings(df: pd.DataFrame) -> pd.DataFrame:
     return normalized.reset_index(drop=True)
 
 
+def ingest_property_listings(
+    df: pd.DataFrame,
+    max_purchase_price: float = 50000.0,
+    allowed_property_types: Iterable[str] | None = None,
+) -> ListingIngestionResult:
+    """Normalize and validate listings for Residential, Commercial, or Land scouting."""
+    normalized = normalize_residential_listings(df)
+    valid_address = normalized["address"].str.len() > 0
+    valid_price = normalized["asking_price"].notna() & (normalized["asking_price"] > 0)
+    within_price = normalized["asking_price"] <= float(max_purchase_price)
+
+    if allowed_property_types is None:
+        allowed_type = pd.Series(True, index=normalized.index)
+    else:
+        allowed = {str(value).strip().lower() for value in allowed_property_types}
+        allowed_type = normalized["property_type"].str.lower().isin(allowed)
+
+    accepted_mask = valid_address & valid_price & within_price & allowed_type
+    accepted = normalized.loc[accepted_mask].copy()
+    rejected = normalized.loc[~accepted_mask].copy()
+
+    if not accepted.empty:
+        accepted["screening_status"] = "READY_FOR_REVIEW"
+        accepted = accepted.sort_values(by=["asking_price"], ascending=True).reset_index(drop=True)
+
+    return ListingIngestionResult(
+        listings=accepted.reset_index(drop=True),
+        rejected=rejected.reset_index(drop=True),
+    )
+
+
 def ingest_residential_listings(
     df: pd.DataFrame,
     max_purchase_price: float = 50000.0,
     exclude_land: bool = False,
 ) -> ListingIngestionResult:
-    """Normalize listings and apply the broad residential buy-box filter.
+    """Normalize listings and apply the residential flip buy-box filter.
 
     Listings are not filtered by bedroom count. Property type remains broad by
     default, while callers focused on house flips can set ``exclude_land=True``
