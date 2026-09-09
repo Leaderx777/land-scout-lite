@@ -1,0 +1,4 @@
+address,city,state,zip,price,beds,baths,sqft,year_built,property_type,url,description,rehab,arv
+123 Example St,Galesburg,IL,61401,42000,2,1,1050,1948,single_family,https://example.com/123,Needs cosmetic rehab,15000,110000
+8 Small Cottage Rd,Canton,IL,61520,30000,1,1,720,1935,cottage,https://example.com/cottage,One-bedroom property retained for review,,
+44 Duplex Ave,Galesburg,IL,61401,49500,4,2,1800,1955,duplex,https://example.com/duplex,All residential types remain eligible,20000,125000
