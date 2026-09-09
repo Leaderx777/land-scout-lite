@@ -8,7 +8,6 @@ import requests
 
 from land_scout.core.rentcast_source import RentCastError
 
-
 RENTCAST_VALUE_ESTIMATE_URL = "https://api.rentcast.io/v1/avm/value"
 
 
@@ -54,8 +53,6 @@ class RentCastAvmResult:
 
     @property
     def confidence_label(self) -> str:
-        # This is an app-side usability label based on estimate-range width,
-        # not a claim about RentCast's statistical confidence level.
         width = self.range_width_percent
         if self.comp_count >= 5 and width <= 20:
             return "HIGH"
@@ -72,109 +69,71 @@ def _request_params(request: RentCastAvmRequest) -> dict[str, object]:
         "daysOld": int(request.days_old),
         "compCount": int(request.comp_count),
     }
-    if request.property_type.strip():
-        params["propertyType"] = request.property_type.strip()
-    if request.bedrooms is not None and float(request.bedrooms) >= 0:
-        params["bedrooms"] = float(request.bedrooms)
-    if request.bathrooms is not None and float(request.bathrooms) >= 0:
-        params["bathrooms"] = float(request.bathrooms)
-    if request.square_feet is not None and float(request.square_feet) > 0:
-        params["squareFootage"] = int(float(request.square_feet))
+    if request.property_type.strip(): params["propertyType"] = request.property_type.strip()
+    if request.bedrooms is not None and float(request.bedrooms) >= 0: params["bedrooms"] = float(request.bedrooms)
+    if request.bathrooms is not None and float(request.bathrooms) >= 0: params["bathrooms"] = float(request.bathrooms)
+    if request.square_feet is not None and float(request.square_feet) > 0: params["squareFootage"] = int(float(request.square_feet))
     return params
 
 
 def rentcast_comps_to_dataframe(records: list[dict] | None) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for record in records or []:
-        if not isinstance(record, dict):
-            continue
-        rows.append(
-            {
-                "address": record.get("formattedAddress") or record.get("addressLine1") or "",
-                "price": record.get("price"),
-                "status": record.get("status") or "",
-                "property_type": record.get("propertyType") or "",
-                "listing_type": record.get("listingType") or "",
-                "bedrooms": record.get("bedrooms"),
-                "bathrooms": record.get("bathrooms"),
-                "square_feet": record.get("squareFootage"),
-                "lot_size": record.get("lotSize"),
-                "year_built": record.get("yearBuilt"),
-                "distance_miles": record.get("distance"),
-                "days_old": record.get("daysOld"),
-                "correlation": record.get("correlation"),
-                "listed_date": record.get("listedDate"),
-                "removed_date": record.get("removedDate"),
-                "last_seen_date": record.get("lastSeenDate"),
-                "days_on_market": record.get("daysOnMarket"),
-            }
-        )
+        if not isinstance(record, dict): continue
+        rows.append({
+            "address": record.get("formattedAddress") or record.get("addressLine1") or "",
+            "price": record.get("price"), "status": record.get("status") or "",
+            "property_type": record.get("propertyType") or "", "listing_type": record.get("listingType") or "",
+            "bedrooms": record.get("bedrooms"), "bathrooms": record.get("bathrooms"),
+            "square_feet": record.get("squareFootage"), "lot_size": record.get("lotSize"),
+            "year_built": record.get("yearBuilt"), "distance_miles": record.get("distance"),
+            "days_old": record.get("daysOld"), "correlation": record.get("correlation"),
+            "listed_date": record.get("listedDate"), "removed_date": record.get("removedDate"),
+            "last_seen_date": record.get("lastSeenDate"), "days_on_market": record.get("daysOnMarket"),
+        })
     return pd.DataFrame(rows)
 
 
-def parse_rentcast_avm_payload(payload: dict[str, Any]) -> RentCastAvmResult:
+def parse_rentcast_comparables_payload(payload: dict[str, Any]) -> pd.DataFrame:
+    """Return comparables even when RentCast does not provide a usable AVM value."""
     if not isinstance(payload, dict):
         raise RentCastError("RentCast returned an unexpected valuation response shape.")
+    return rentcast_comps_to_dataframe(payload.get("comparables"))
 
-    price = payload.get("price")
-    low = payload.get("priceRangeLow")
-    high = payload.get("priceRangeHigh")
+
+def parse_rentcast_avm_payload(payload: dict[str, Any]) -> RentCastAvmResult:
+    if not isinstance(payload, dict): raise RentCastError("RentCast returned an unexpected valuation response shape.")
     try:
-        price_value = float(price)
-        low_value = float(low)
-        high_value = float(high)
+        price_value = float(payload.get("price")); low_value = float(payload.get("priceRangeLow")); high_value = float(payload.get("priceRangeHigh"))
     except (TypeError, ValueError) as exc:
         raise RentCastError("RentCast valuation response is missing a usable value range.") from exc
-
     if price_value <= 0 or low_value <= 0 or high_value <= 0:
         raise RentCastError("RentCast valuation response contains non-positive values.")
-
-    subject = payload.get("subjectProperty")
-    if not isinstance(subject, dict):
-        subject = {}
-
-    comparables = rentcast_comps_to_dataframe(payload.get("comparables"))
-    return RentCastAvmResult(
-        estimated_value=price_value,
-        range_low=low_value,
-        range_high=high_value,
-        subject_property=subject,
-        comparables=comparables,
-    )
+    subject = payload.get("subjectProperty") if isinstance(payload.get("subjectProperty"), dict) else {}
+    return RentCastAvmResult(price_value, low_value, high_value, subject, parse_rentcast_comparables_payload(payload))
 
 
-def fetch_rentcast_value_estimate(
-    api_key: str,
-    request: RentCastAvmRequest,
-    session=requests,
-    timeout: float = 20.0,
-) -> RentCastAvmResult:
-    """Fetch RentCast's value estimate and sale comparables for one property."""
-    if not api_key or not api_key.strip():
-        raise ValueError("A RentCast API key is required.")
-
-    response = session.get(
-        RENTCAST_VALUE_ESTIMATE_URL,
-        params=_request_params(request),
-        headers={"Accept": "application/json", "X-Api-Key": api_key.strip()},
-        timeout=timeout,
-    )
-    if response.status_code == 401:
-        raise RentCastError("RentCast rejected the API key.")
+def _fetch_payload(api_key: str, request: RentCastAvmRequest, session=requests, timeout: float = 20.0) -> dict[str, Any]:
+    if not api_key or not api_key.strip(): raise ValueError("A RentCast API key is required.")
+    response = session.get(RENTCAST_VALUE_ESTIMATE_URL, params=_request_params(request), headers={"Accept": "application/json", "X-Api-Key": api_key.strip()}, timeout=timeout)
+    if response.status_code == 401: raise RentCastError("RentCast rejected the API key.")
     if response.status_code >= 400:
         detail = ""
         try:
             body = response.json()
-            if isinstance(body, dict):
-                detail = str(body.get("message") or body.get("error") or "").strip()
-        except Exception:
-            detail = ""
-        suffix = f": {detail}" if detail else "."
-        raise RentCastError(f"RentCast valuation request failed with HTTP {response.status_code}{suffix}")
+            if isinstance(body, dict): detail = str(body.get("message") or body.get("error") or "").strip()
+        except Exception: pass
+        raise RentCastError(f"RentCast valuation request failed with HTTP {response.status_code}{f': {detail}' if detail else '.'}")
+    try: payload = response.json()
+    except Exception as exc: raise RentCastError("RentCast returned invalid JSON for the valuation request.") from exc
+    if not isinstance(payload, dict): raise RentCastError("RentCast returned an unexpected valuation response shape.")
+    return payload
 
-    try:
-        payload = response.json()
-    except Exception as exc:
-        raise RentCastError("RentCast returned invalid JSON for the valuation request.") from exc
 
-    return parse_rentcast_avm_payload(payload)
+def fetch_rentcast_value_estimate(api_key: str, request: RentCastAvmRequest, session=requests, timeout: float = 20.0) -> RentCastAvmResult:
+    return parse_rentcast_avm_payload(_fetch_payload(api_key, request, session=session, timeout=timeout))
+
+
+def fetch_rentcast_comparables(api_key: str, request: RentCastAvmRequest, session=requests, timeout: float = 20.0) -> pd.DataFrame:
+    """Fetch comparable listings without requiring RentCast to return a positive AVM."""
+    return parse_rentcast_comparables_payload(_fetch_payload(api_key, request, session=session, timeout=timeout))
