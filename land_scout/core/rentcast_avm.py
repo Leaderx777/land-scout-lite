@@ -21,7 +21,7 @@ class RentCastAvmRequest:
     square_feet: float | None = None
     max_radius: float = 5.0
     days_old: int = 270
-    comp_count: int = 20
+    comp_count: int = 15
 
     def validate(self) -> None:
         if not self.address.strip():
@@ -30,8 +30,8 @@ class RentCastAvmRequest:
             raise ValueError("Comparable radius must be greater than zero.")
         if self.days_old <= 0:
             raise ValueError("Comparable lookback must be greater than zero.")
-        if not 1 <= int(self.comp_count) <= 50:
-            raise ValueError("Comparable count must be between 1 and 50.")
+        if not 5 <= int(self.comp_count) <= 25:
+            raise ValueError("Comparable count must be between 5 and 25.")
 
 
 @dataclass(frozen=True)
@@ -93,10 +93,12 @@ def rentcast_comps_to_dataframe(records: list[dict] | None) -> pd.DataFrame:
                 "address": record.get("formattedAddress") or record.get("addressLine1") or "",
                 "price": record.get("price"),
                 "status": record.get("status") or "",
+                "property_type": record.get("propertyType") or "",
                 "listing_type": record.get("listingType") or "",
                 "bedrooms": record.get("bedrooms"),
                 "bathrooms": record.get("bathrooms"),
                 "square_feet": record.get("squareFootage"),
+                "lot_size": record.get("lotSize"),
                 "year_built": record.get("yearBuilt"),
                 "distance_miles": record.get("distance"),
                 "days_old": record.get("daysOld"),
