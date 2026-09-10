@@ -70,3 +70,38 @@ def test_overpriced_valued_land_scores_lower():
     result = score_land_candidates(frame)
     assert result.iloc[0]["discount_to_value_pct"] == -25.0
     assert result.iloc[0]["deal_rating"] == "Skip for now"
+
+
+def test_listing_ask_fallback_cannot_be_called_best_deal():
+    frame = pd.DataFrame({
+        "address": ["Looks Cheap"],
+        "asking_price": [10000],
+        "price_per_acre": [10000],
+        "acres": [1.0],
+        "days_on_market": [120],
+        "estimated_value": [30000],
+        "value_range_low": [25000],
+        "value_range_high": [35000],
+        "value_comp_count": [12],
+        "value_source": ["Land comp $/acre"],
+    })
+    result = score_land_candidates(frame)
+    assert result.iloc[0]["deal_rating"] == "Worth Reviewing"
+    assert result.iloc[0]["land_deal_score"] < 100
+
+
+def test_verified_sold_comps_can_support_best_deal_label():
+    frame = pd.DataFrame({
+        "address": ["Verified Discount"],
+        "asking_price": [10000],
+        "price_per_acre": [10000],
+        "acres": [1.0],
+        "days_on_market": [120],
+        "estimated_value": [30000],
+        "value_range_low": [25000],
+        "value_range_high": [35000],
+        "value_comp_count": [8],
+        "value_source": ["Verified sold comps"],
+    })
+    result = score_land_candidates(frame)
+    assert result.iloc[0]["deal_rating"] == "Best Deal"

@@ -12,9 +12,23 @@ def _percentile_score(series: pd.Series, lower_is_better: bool) -> pd.Series:
     return scores.fillna(50.0)
 
 
-def _rating(score: float, has_value: bool) -> str:
+def _source_strength(value_source: object) -> str:
+    source = str(value_source or "").strip().lower()
+    if "verified" in source or "sold" in source:
+        return "STRONG"
+    if "land comp" in source or "listing" in source or "$ / acre" in source or "$/acre" in source:
+        return "PRELIMINARY"
+    if "avm" in source:
+        return "MODEL"
+    return "MODEL"
+
+
+def _rating(score: float, has_value: bool, source_strength: str = "MODEL") -> str:
     if has_value:
-        if score >= 75:
+        # Asking-price comp fallbacks are useful for triage, but not enough evidence to
+        # call a parcel a "Best Deal". Strong sold evidence or a direct model estimate
+        # can earn that label.
+        if score >= 75 and source_strength != "PRELIMINARY":
             return "Best Deal"
         if score >= 55:
             return "Worth Reviewing"
@@ -28,6 +42,8 @@ def score_land_candidates(frame: pd.DataFrame) -> pd.DataFrame:
 
     Listing-side facts produce a preliminary score. If estimated_value is present,
     the score shifts most of its weight to discount-to-value and valuation confidence.
+    Asking-price comp fallbacks remain explicitly preliminary and cannot receive the
+    strongest deal label.
     """
     scored = frame.copy()
     if scored.empty:
@@ -71,6 +87,15 @@ def score_land_candidates(frame: pd.DataFrame) -> pd.DataFrame:
     confidence_score = confidence_score + comp_count.fillna(0).clip(lower=0, upper=15) / 15.0 * 15.0
     confidence_score = confidence_score.clip(upper=100.0)
 
+    source_series = scored.get("value_source", pd.Series("", index=scored.index)).fillna("").astype(str)
+    source_strength = source_series.map(_source_strength)
+
+    # Listing-ask fallback estimates should carry a confidence penalty. They are useful
+    # for ranking candidates, but they are not transaction evidence.
+    confidence_score.loc[source_strength == "PRELIMINARY"] = confidence_score.loc[
+        source_strength == "PRELIMINARY"
+    ].clip(upper=55.0)
+
     final_score = preliminary.copy()
     final_score.loc[has_value] = (
         discount_score.loc[has_value] * 0.60
@@ -79,6 +104,7 @@ def score_land_candidates(frame: pd.DataFrame) -> pd.DataFrame:
     )
     scored["land_deal_score"] = final_score.round(1)
     scored["deal_rating"] = [
-        _rating(float(score), bool(valued)) for score, valued in zip(scored["land_deal_score"], has_value)
+        _rating(float(score), bool(valued), strength)
+        for score, valued, strength in zip(scored["land_deal_score"], has_value, source_strength)
     ]
     return scored.sort_values(["land_deal_score", "asking_price"], ascending=[False, True], na_position="last").reset_index(drop=True)

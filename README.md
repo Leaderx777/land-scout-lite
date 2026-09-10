@@ -58,16 +58,34 @@ Listings outside these counties are ignored by the land batch screener.
 
 ## Land workflow
 
-1. Upload a deals CSV
-2. Keep only listings in the Central Illinois target counties
-3. Send each listing's property features to Land Value Predictor
-4. Receive an estimated value
-5. Compare estimated value with asking price
-6. Calculate dollar spread and discount-to-estimate percentage
-7. Rank the strongest apparent opportunities
-8. Export the ranked results to CSV
+1. Search or upload land listings
+2. Screen by property type, location, price, lot size, and listing facts
+3. Rank candidates preliminarily
+4. Request a direct value estimate when available
+5. Fall back to comparable price-per-acre analysis when a direct land AVM is unavailable
+6. Compare estimated value with asking price
+7. Calculate dollar spread and discount-to-estimate percentage
+8. Rank the strongest apparent opportunities
+9. Export the results to CSV
 
 A single-property land screen is also available in the Streamlit interface.
+
+### Land valuation evidence hierarchy
+
+Property Scout now distinguishes transaction evidence from listing-price evidence:
+
+1. **Verified closed sales** — strongest comp input. Use `pages/3_Verified_Land_Comps.py` with actual closed sale prices from a county record, MLS, or another verified source.
+2. **Direct AVM** — useful model-based value evidence when the provider returns a usable estimate.
+3. **Active/inactive listing asking prices** — preliminary market evidence only. These prices are not treated as closed sales.
+
+The RentCast AVM comparable records contain listing prices. Therefore the automatic land comp fallback is intentionally labeled and scored conservatively. A listing-ask fallback can move a parcel to **Worth Reviewing**, but cannot by itself earn the strongest **Best Deal** label.
+
+The verified-sold-comps page accepts manual entry or a CSV with at least:
+
+- `sale_price`
+- `lot_size` (square feet)
+
+Optional columns include `address`, `sale_date`, and `source`. At least two usable sold comps are required for an estimate.
 
 ## CSV input for land screening
 
@@ -141,9 +159,14 @@ The current land API model itself is still synthetic until the real-data feature
 - RentCast live sale-listing integration
 - JSON persistence for saved flip opportunities
 - batch CSV screening and export
+- automated pytest checks with GitHub Actions
 
 ## Tests
+
+Run locally:
 
 ```bash
 python -m pytest
 ```
+
+Pull requests and pushes to `main` also run the test suite automatically through GitHub Actions.
